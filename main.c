@@ -55,49 +55,48 @@ void irq6_handler(void)
     switch (event)
     {
     case 0:
-        event = 1;
-        break;
+        if ((count > 1350 - 50) && (count < 1350 + 50))
+        {
+            event = 1;
+            break;
+        }
 
-    case 1:
-        if ((count > 1350 - 10) && (count < 1350 + 10))
+        if ((count > 1125 - 50) && (count < 1125 + 50))
         {
-            event = 2;
+            event = 33;
             break;
         }
-        if ((count > 1125 - 10) && (count < 1125 + 10))
-        {
-            event = 34;
-            break;
-        }
-        event = 0;
+
         break;
 
     default:
-        if (event < 34)
+        if (event >= 33)
+            break;
+
+        if ((count > 225 - 50) && (count < 225 + 50))
         {
-            if ((count > 225 - 10) && (count < 225 + 10))
-            {
-                data = data << 1 | 1;
-                event++;
-                break;
-            }
-            if ((count > 112 - 10) && (count < 112 + 10))
-            {
-                data = data << 1;
-                event++;
-                break;
-            }
-            event = 0;
+            data = data << 1 | 1;
+            event++;
+            break;
         }
+
+        if ((count > 112 - 50) && (count < 112 + 50))
+        {
+            data = data << 1;
+            event++;
+            break;
+        }
+
+        event = 0;
+        break;
     }
 
     EXTI->PR = EXTI_PR_PR3;
 }
 
-
-static u32_t data_ready(void)
+static u32_t has_data(void)
 {
-    return event >= 34;
+    return event >= 33;
 }
 
 void main(void)
@@ -118,7 +117,7 @@ void main(void)
     RCC->APB2ENR =  RCC_APB2ENR_SYSCFGCOMPEN;
 
     SYSCFG->CFGR1 = SYSCFG_CFGR1_PA11_PA12_RMP;
-    SYSCFG->EXTICR[0] = SYSCFG_EXTICR1_EXTI3_PB;
+    SYSCFG->EXTICR1 = SYSCFG_EXTICR1_EXTI3_PB;
 
     EXTI->IMR = EXTI_IMR_MR3;
     EXTI->FTSR = EXTI_FTSR_TR3;
@@ -142,42 +141,45 @@ void main(void)
 
     debug("hello\n");
 
-
     start_hid_service();
     while (1)
     {
         wait_signal(has_hid_connection);
         debug("connected\n");
+
         while (has_hid_connection())
         {
-            wait_signal(data_ready);
-            debug("%8x", data);
-            switch ((data >> 8) & 0xFF)
+            wait_signal(has_data);
+
+            if ((u8_t)(data >> 8) == (u8_t)~data)
             {
-            case 0x78:
-                debug("+");
-                report.keys[0] = 0x80;
-                write_hid_report(&report);
-                sleep(10);
-                report.keys[0] = 0x00;
-                write_hid_report(&report);
-                break;
+                GPIOA->ODR |= GPIO_ODR_0;
+                switch ((u8_t)(data >> 8))
+                {
+                case 0x78:
+                    report.keys[0] = 0x80;
+                    write_hid_report(&report);
+                    report.keys[0] = 0x00;
+                    write_hid_report(&report);
+                    break;
 
-            case 0x50:
-                debug("-");
-                report.keys[0] = 0x81;
-                write_hid_report(&report);
-                sleep(10);
-                report.keys[0] = 0x00;
-                write_hid_report(&report);
-                break;
+                case 0x50:
+                    report.keys[0] = 0x81;
+                    write_hid_report(&report);
+                    report.keys[0] = 0x00;
+                    write_hid_report(&report);
+                    break;
 
-            default:
-                break;
+                default:
+                    break;
+                }
+
+                GPIOA->ODR &= ~GPIO_ODR_0;
             }
 
             event = 0;
         }
+
         debug("disconnected\n");
     }
 }
